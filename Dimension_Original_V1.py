@@ -7,6 +7,10 @@ from scipy.spatial import distance as dist
 import math
 
 
+'''
+THIS WILL BE THE UPDATED ONE
+'''
+
 def percent_error(actual):
     
     error = abs((actual-zero_depth)/zero_depth)*100
