@@ -5,21 +5,7 @@ from Point_Cloud import convert_depth_frame_to_pointcloud, convert_depth_pixel_t
 import BoundingBox
 from scipy.spatial import distance as dist
 import math
-
-zero = open("Zero_Length", 'r')
-zero_depth =zero.read()
-zero.close()
-zero_depth = float(zero_depth)
-
-zeroMax = open("Zero_Max", 'r')
-zero_max =zeroMax.read()
-zeroMax.close()
-zero_max = float(zero_max)
-
-zeroMin = open("Zero_Min", 'r')
-zero_min =zeroMin.read()
-zeroMin.close()
-zero_min = float(zero_min)
+import time
 
 #resolution_width = 1280 # pixels
 #resolution_height = 720 # pixels
@@ -35,158 +21,186 @@ config.enable_stream(rs.stream.depth, resolution_width, resolution_height, rs.fo
 config.enable_stream(rs.stream.infrared, 1, resolution_width, resolution_height, rs.format.y8, frame_rate)
 config.enable_stream(rs.stream.color, resolution_width, resolution_height, rs.format.bgr8, frame_rate)
 
+def get_Dimensions():
 
-# Start streaming
-profile = pipeline.start(config)
-sensor = profile.get_device().first_depth_sensor()
-depth_stream=rs.video_stream_profile(profile.get_stream(rs.stream.depth))
-intrinsics = depth_stream.get_intrinsics()
+    '''
+    Set the variables for the Max, Min, and Mean values that serve as the 'zeros'.
+    '''
+    zero = open("Zero_Length", 'r')
+    zero_depth =zero.read()
+    zero.close()
+    zero_depth = float(zero_depth)
 
-try:
-    while True:
+    zeroMax = open("Zero_Max", 'r')
+    zero_max =zeroMax.read()
+    zeroMax.close()
+    zero_max = float(zero_max)
 
-        # Wait for a coherent pair of frames: depth and color
-        frames = pipeline.wait_for_frames()
-        align_to = rs.stream.color
-        align = rs.align(align_to)
-        aligned_frames = align.process(frames)
-        depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
-        ir_frame = aligned_frames.get_infrared_frame()
-        if not depth_frame or not color_frame:
-            continue
-        
-        # Convert images to numpy arrays
-        depth_image = np.asanyarray(depth_frame.get_data())
-        color_image = np.asanyarray(color_frame.get_data())
-        new_image = np.asanyarray(ir_frame.get_data())
-        
-        # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
-        depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        cv2.imshow('color', color_image)
-        
-        if cv2.waitKey(1) & 0xFF == ord('c'):
-            #cv2.imwrite('Picture.jpg', color_image)
-            cv2.imwrite('Picture.jpg', color_image)
-            break
-
-    bounding_box, c, top, bottom, left, right, extremes = BoundingBox.get_dimensions()
+    zeroMin = open("Zero_Min", 'r')
+    zero_min =zeroMin.read()
+    zeroMin.close()
+    zero_min = float(zero_min)
     
-    points_on_lineL = np.linspace(top, bottom, int(dist.euclidean(top, bottom)), dtype = int)
-    points_on_lineW = np.linspace(left, right, int(dist.euclidean(left, right)), dtype = int)
-
-    metricL = []
-    metricL = np.zeros([int(dist.euclidean(top, bottom)),3])
-
-    i = 0 
-    for points in points_on_lineL:
-        metricL[i] = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
-        metric = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
-        i+=1
-
-    metricW = []
-    metricW = np.zeros([int(dist.euclidean(left, right)),3])
-
-    j = 0 
-    for points in points_on_lineW:
-        metricW[j] = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
-        metric = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
-        j+=1
-
-    #Remove all 0 values, convert into a numpy array
-    metricL = [ii for ii in metricL if all(ii)]
-    metricW = [iii for iii in metricW if all(iii)]
-    metricL = np.asanyarray(metricL)
-    metricW = np.asanyarray(metricW)
-
-    Linear_Vals_10 = np.linspace(0, 9, 10)
+    '''
+    Set timeout value
+    '''
+    timeout = time.time() + 1
     
-    #Set up to record the first and last 10 values
-    Length_First10 = np.empty([10,3])    
-    Length_First10[:,0] = Linear_Vals_10
-    Length_First10[:,1] = metricL[0:10, 2]
-    
-    Width_First10 = np.empty([10,3])
-    Width_First10[:,0] = Linear_Vals_10
-    Width_First10[:,1] = metricW[0:10, 2]
+    # Start streaming
+    profile = pipeline.start(config)
+    sensor = profile.get_device().first_depth_sensor()
+    depth_stream=rs.video_stream_profile(profile.get_stream(rs.stream.depth))
+    intrinsics = depth_stream.get_intrinsics()
 
-    Length_Final10 = np.empty([10,3])
-    Length_Final10_Index = np.linspace(metricL.shape[0]-10, metricL.shape[0]-1, 10)
+    try:
+        while True:
 
-    Length_Final10[:,0] = Length_Final10_Index
-    Length_Final10[:,1] = metricL[metricL.shape[0]-10:metricL.shape[0], 2]
+            # Wait for a coherent pair of frames: depth and color and align the frames
+            frames = pipeline.wait_for_frames()
+            align_to = rs.stream.color
+            align = rs.align(align_to)
+            aligned_frames = align.process(frames)
+            depth_frame = aligned_frames.get_depth_frame()
+            color_frame = aligned_frames.get_color_frame()
+            ir_frame = aligned_frames.get_infrared_frame()
+            if not depth_frame or not color_frame:
+                continue
+            
+            # Convert images to numpy arrays
+            depth_image = np.asanyarray(depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+            new_image = np.asanyarray(ir_frame.get_data())
+            
+            # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+            #cv2.imshow('color', color_image)
 
-
-    Width_Final10 = np.empty([10,3])
-    linW = np.linspace(metricW.shape[0]-10, metricW.shape[0]-1, 10)
-    Width_Final10[:,0] = linW
-    Width_Final10[:,1] = metricW[metricW.shape[0]-10:metricW.shape[0], 2]
-        
-    for k in range(10):
-        Length_First10[k, 2] = (metricL[k, 2] - metricL[k+1, 2])*1000
-        
-    i=0
-    for k in Length_Final10_Index:
-        k = int(k)
-        Length_Final10[i,2] =  (metricL[k, 2] - metricL[k-1, 2])*1000
-        i+=1
-    
-    for k in range(10):
-        Width_First10[k, 2] = (metricW[k, 2] - metricW[k+1, 2])*1000
-    
-    i=0
-    for k in linW:
-        k = int(k)
-        Width_Final10[i,2] =  (metricW[k, 2] - metricW[k-1, 2])*1000
-        i+=1
-
-    for index in Length_First10:
-        if index[2] > 5:
-            if (index[1] > zero_min) and (index[1] < zero_max):
-                Starting_indexL = int(index[0]+1)+1
+            if time.time() > timeout:
+                cv2.imwrite('Picture.jpg', color_image)
                 break
-        else:
-            Starting_indexL = 1
-            continue
+            
+##            if cv2.waitKey(1) & 0xFF == ord('c'):
+##                #cv2.imwrite('Picture.jpg', color_image)
+##                cv2.imwrite('Picture.jpg', color_image)
+##                break
+
+        bounding_box, c, top, bottom, left, right, extremes = BoundingBox.get_dimensions()
         
-    for index in Width_First10:
-        if index[2] > 5:
-            if (index[1] > zero_min) and (index[1] < zero_max):
-                Starting_indexW = int(index[0]+1)+1
-                break
-        else:
-            Starting_indexW = 1
-            continue
+        points_on_lineL = np.linspace(top, bottom, int(dist.euclidean(top, bottom)), dtype = int)
+        points_on_lineW = np.linspace(left, right, int(dist.euclidean(left, right)), dtype = int)
 
-    for i in range(1,11):
-        if Length_Final10[-i,2] > 5:
-            if percent_error(Length_Final10[-i,1]) < 0.5:
-                Final_indexL = int(Length_Final10[-i,0])-1
-                break
-        else:
-            Final_indexL = int(Length_Final10[-1,0])-1
+        metricL = []
+        metricL = np.zeros([int(dist.euclidean(top, bottom)),3])
 
-    for i in range(1,11):
-        if Width_Final10[-i,2] > 5:
-            if (Width_Final10[-i,1] > zero_min) and (Width_Final10[-i,1] < zero_max):
-                Final_indexW = int(Width_Final10[-i,0])-1
-                break
-        else:
-            Final_indexW = int(Width_Final10[-1,0])-1
+        i = 0 
+        for points in points_on_lineL:
+            metricL[i] = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
+            metric = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
+            i+=1
 
-    length = dist.euclidean((metricL[Starting_indexL,0], metricL[Starting_indexL,1]), (metricL[Final_indexL,0], metricL[Final_indexL,1]))
-    width = dist.euclidean((metricW[Starting_indexW,0], metricW[Starting_indexW,1]), (metricW[Final_indexW,0], metricW[Final_indexW,1]))
-    print("Length: ", length*1000, "mm   Width: ", width*1000, "mm")
-      
-    pointCloud = convert_depth_frame_to_pointcloud(depth_image, intrinsics)
-    pointCloud = np.asanyarray(pointCloud)
-    height = (zero_depth - min(pointCloud[2,:]))*1000
-    print("Height", height, "mm")
+        metricW = []
+        metricW = np.zeros([int(dist.euclidean(left, right)),3])
 
-    cv2.waitKey(0)
+        j = 0 
+        for points in points_on_lineW:
+            metricW[j] = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
+            metric = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
+            j+=1
 
-finally:
-    pipeline.stop()
-    cv2.destroyAllWindows()
+        #Remove all 0 values, convert into a numpy array
+        metricL = [ii for ii in metricL if all(ii)]
+        metricW = [iii for iii in metricW if all(iii)]
+        metricL = np.asanyarray(metricL)
+        metricW = np.asanyarray(metricW)
+
+        Linear_Vals_10 = np.linspace(0, 9, 10)
+        
+        #Set up to record the first and last 10 values
+        Length_First10 = np.empty([10,3])    
+        Length_First10[:,0] = Linear_Vals_10
+        Length_First10[:,1] = metricL[0:10, 2]
+        
+        Width_First10 = np.empty([10,3])
+        Width_First10[:,0] = Linear_Vals_10
+        Width_First10[:,1] = metricW[0:10, 2]
+
+        Length_Final10 = np.empty([10,3])
+        Length_Final10_Index = np.linspace(metricL.shape[0]-10, metricL.shape[0]-1, 10)
+
+        Length_Final10[:,0] = Length_Final10_Index
+        Length_Final10[:,1] = metricL[metricL.shape[0]-10:metricL.shape[0], 2]
 
 
+        Width_Final10 = np.empty([10,3])
+        linW = np.linspace(metricW.shape[0]-10, metricW.shape[0]-1, 10)
+        Width_Final10[:,0] = linW
+        Width_Final10[:,1] = metricW[metricW.shape[0]-10:metricW.shape[0], 2]
+            
+        for k in range(10):
+            Length_First10[k, 2] = (metricL[k, 2] - metricL[k+1, 2])*1000
+            
+        i=0
+        for k in Length_Final10_Index:
+            k = int(k)
+            Length_Final10[i,2] =  (metricL[k, 2] - metricL[k-1, 2])*1000
+            i+=1
+        
+        for k in range(10):
+            Width_First10[k, 2] = (metricW[k, 2] - metricW[k+1, 2])*1000
+        
+        i=0
+        for k in linW:
+            k = int(k)
+            Width_Final10[i,2] =  (metricW[k, 2] - metricW[k-1, 2])*1000
+            i+=1
+
+        for index in Length_First10:
+            if index[2] > 5:
+                if (index[1] > zero_min) and (index[1] < zero_max):
+                    Starting_indexL = int(index[0]+1)+1
+                    break
+            else:
+                Starting_indexL = 1
+                continue
+            
+        for index in Width_First10:
+            if index[2] > 5:
+                if (index[1] > zero_min) and (index[1] < zero_max):
+                    Starting_indexW = int(index[0]+1)+1
+                    break
+            else:
+                Starting_indexW = 1
+                continue
+
+        for i in range(1,11):
+            if Length_Final10[-i,2] > 5:
+                if (Length_Final10[-i,1] > zero_min) and (Length_Final10[-i,1] < zero_max):
+                    Final_indexL = int(Length_Final10[-i,0])-1
+                    break
+            else:
+                Final_indexL = int(Length_Final10[-1,0])-1
+
+        for i in range(1,11):
+            if Width_Final10[-i,2] > 5:
+                if (Width_Final10[-i,1] > zero_min) and (Width_Final10[-i,1] < zero_max):
+                    Final_indexW = int(Width_Final10[-i,0])-1
+                    break
+            else:
+                Final_indexW = int(Width_Final10[-1,0])-1
+
+        length = dist.euclidean((metricL[Starting_indexL,0], metricL[Starting_indexL,1]), (metricL[Final_indexL,0], metricL[Final_indexL,1]))
+        width = dist.euclidean((metricW[Starting_indexW,0], metricW[Starting_indexW,1]), (metricW[Final_indexW,0], metricW[Final_indexW,1]))
+        print("Length: ", length*1000, "mm   Width: ", width*1000, "mm")
+          
+        pointCloud = convert_depth_frame_to_pointcloud(depth_image, intrinsics)
+        pointCloud = np.asanyarray(pointCloud)
+        height = (zero_depth - min(pointCloud[2,:]))*1000
+        print("Height", height, "mm")
+
+        cv2.waitKey(0)
+
+    finally:
+        pipeline.stop()
+        cv2.destroyAllWindows()
+
+    return(length*1000, width*1000, height)
