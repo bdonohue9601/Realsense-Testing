@@ -7,6 +7,9 @@ from scipy.spatial import distance as dist
 import math
 import time
 
+'''
+------Set the resolution and frame rate-----
+'''
 #resolution_width = 1280 # pixels
 #resolution_height = 720 # pixels
 resolution_width = 640 # pixels
@@ -73,38 +76,36 @@ def get_Dimensions():
             
             # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-            #cv2.imshow('color', color_image)
 
             if time.time() > timeout:
                 cv2.imwrite('Picture.jpg', color_image)
                 break
-            
-##            if cv2.waitKey(1) & 0xFF == ord('c'):
-##                #cv2.imwrite('Picture.jpg', color_image)
-##                cv2.imwrite('Picture.jpg', color_image)
-##                break
 
+        #Call BoundingBox.py, return bounding box; contours; top, bottom, left and right midpoints; and extreme N,W,E,S values of countours
         bounding_box, c, top, bottom, left, right, extremes = BoundingBox.get_dimensions()
-        
+
+        #Create array of pixel values between the midpoints of bounding boxes
         points_on_lineL = np.linspace(top, bottom, int(dist.euclidean(top, bottom)), dtype = int)
         points_on_lineW = np.linspace(left, right, int(dist.euclidean(left, right)), dtype = int)
 
+        '''
+        Loop through each coordinate and set their metric_point_cloud values to a new array
+        '''
+        #Length
         metricL = []
         metricL = np.zeros([int(dist.euclidean(top, bottom)),3])
 
         i = 0 
         for points in points_on_lineL:
             metricL[i] = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
-            metric = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
             i+=1
-
+        #Width
         metricW = []
         metricW = np.zeros([int(dist.euclidean(left, right)),3])
 
         j = 0 
         for points in points_on_lineW:
             metricW[j] = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
-            metric = convert_depth_pixel_to_metric_coordinate(depth_frame.get_distance(points[0], points[1]), points[0], points[1], intrinsics)
             j+=1
 
         #Remove all 0 values, convert into a numpy array
@@ -113,9 +114,12 @@ def get_Dimensions():
         metricL = np.asanyarray(metricL)
         metricW = np.asanyarray(metricW)
 
+        #Create an array 1-10
         Linear_Vals_10 = np.linspace(0, 9, 10)
-        
-        #Set up to record the first and last 10 values
+
+        '''
+        Set up to record the first and last 10 values, creating arrays marking index, depth, and difference in depth to next value
+        '''
         Length_First10 = np.empty([10,3])    
         Length_First10[:,0] = Linear_Vals_10
         Length_First10[:,1] = metricL[0:10, 2]
@@ -130,30 +134,33 @@ def get_Dimensions():
         Length_Final10[:,0] = Length_Final10_Index
         Length_Final10[:,1] = metricL[metricL.shape[0]-10:metricL.shape[0], 2]
 
-
         Width_Final10 = np.empty([10,3])
-        linW = np.linspace(metricW.shape[0]-10, metricW.shape[0]-1, 10)
-        Width_Final10[:,0] = linW
+        Width_Final10_Index = np.linspace(metricW.shape[0]-10, metricW.shape[0]-1, 10)
+        
+        Width_Final10[:,0] = Width_Final10_Index
         Width_Final10[:,1] = metricW[metricW.shape[0]-10:metricW.shape[0], 2]
-            
+
+        #Record difference in heights of neighboring pixels, first 10 coordinates 
         for k in range(10):
             Length_First10[k, 2] = (metricL[k, 2] - metricL[k+1, 2])*1000
-            
+            Width_First10[k, 2] = (metricW[k, 2] - metricW[k+1, 2])*1000
+
+        #Record difference in heights of neighboring pixel coordinates, final 10
+        #Length
         i=0
         for k in Length_Final10_Index:
             k = int(k)
             Length_Final10[i,2] =  (metricL[k, 2] - metricL[k-1, 2])*1000
             i+=1
-        
-        for k in range(10):
-            Width_First10[k, 2] = (metricW[k, 2] - metricW[k+1, 2])*1000
-        
+        #Width
         i=0
-        for k in linW:
+        for k in Width_Final10_Index:
             k = int(k)
             Width_Final10[i,2] =  (metricW[k, 2] - metricW[k-1, 2])*1000
             i+=1
 
+        #If the difference in Heights is greater than 5mm and height at pixel falls within 'zero' range, start measurment index at object
+            #(Realsense has a vairation of ~1-3mm for distance values)
         for index in Length_First10:
             if index[2] > 5:
                 if (index[1] > zero_min) and (index[1] < zero_max):
@@ -188,19 +195,24 @@ def get_Dimensions():
             else:
                 Final_indexW = int(Width_Final10[-1,0])-1
 
+        #Calculate the length and width by finding euclidean distance from metric points on point cloud at values
         length = dist.euclidean((metricL[Starting_indexL,0], metricL[Starting_indexL,1]), (metricL[Final_indexL,0], metricL[Final_indexL,1]))
         width = dist.euclidean((metricW[Starting_indexW,0], metricW[Starting_indexW,1]), (metricW[Final_indexW,0], metricW[Final_indexW,1]))
         print("Length: ", length*1000, "mm   Width: ", width*1000, "mm")
-          
+
+        #Calculate the depth by subtracting the smallest height recorded in pointcloud by the 'zero' height
         pointCloud = convert_depth_frame_to_pointcloud(depth_image, intrinsics)
         pointCloud = np.asanyarray(pointCloud)
         height = (zero_depth - min(pointCloud[2,:]))*1000
         print("Height", height, "mm")
 
-        cv2.waitKey(0)
+        #pic = cv2.imread('/home/hp/Documents/Dimensions_testing/Picture.jpg')
+        #cv2.imshow("pic", pic)
+        print(extremes[0][0]-10, extremes[1][0]+10, extremes[2][1]-10, extremes[3][1]+10)
+        #cv2.waitKey(0)
 
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
 
-    return(length*1000, width*1000, height)
+    return(length*1000, width*1000, height, extremes[0][0]-10, extremes[1][0]+10, extremes[2][1]-10, extremes[3][1]+10)
